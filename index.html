@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stockroom — Inventory Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">◧</span>
+      <div class="brand-text">
+        <span class="brand-name">Stockroom</span>
+        <span class="brand-sub">inventory ledger</span>
+      </div>
+    </div>
+
+    <nav class="filters">
+      <span class="filters-label">View</span>
+      <button class="filter-btn active" data-filter="all">
+        <span>All products</span><span class="count" id="count-all">0</span>
+      </button>
+      <button class="filter-btn" data-filter="instock">
+        <span>In stock</span><span class="count count-ok" id="count-in">0</span>
+      </button>
+      <button class="filter-btn" data-filter="out">
+        <span>Out of stock</span><span class="count count-danger" id="count-out">0</span>
+      </button>
+    </nav>
+
+    <nav class="filters" id="group-filters">
+      <span class="filters-label">Brand / group</span>
+      <!-- populated by JS -->
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sync-status" id="sync-status">
+        <span class="sync-dot" id="sync-dot"></span>
+        <span id="sync-status-text">Not connected to a file</span>
+      </div>
+      <button id="btn-connect-file" class="ghost-btn">📁 Connect a file</button>
+      <button id="btn-reconnect-file" class="ghost-btn" hidden>🔓 Reconnect file</button>
+      <button id="btn-export" class="ghost-btn">Export JSON</button>
+      <label class="ghost-btn" for="import-file">Import JSON</label>
+      <input type="file" id="import-file" accept="application/json" hidden>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <div class="storage-warning" id="storage-warning" hidden>
+      ⚠️ Your browser is blocking or clearing site storage, so changes here won't be saved once you close this page.
+      Click <strong>Export JSON</strong> in the sidebar before closing, and see the note below the app for how to fix this.
+    </div>
+
+    <header class="topbar">
+      <div class="stats-strip">
+        <div class="stat">
+          <span class="stat-value" id="stat-products">0</span>
+          <span class="stat-label">products</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="stat-left">0</span>
+          <span class="stat-label">units remaining</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="stat-purchase-value">₹0</span>
+          <span class="stat-label">stock cost (last purchase rate)</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="stat-selling-value">₹0</span>
+          <span class="stat-label">stock value (last sell rate)</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <div class="search-wrap">
+          <input type="text" id="search" placeholder="Search product name…">
+        </div>
+        <label class="toggle-row">
+          <input type="checkbox" id="toggle-hide-zero">
+          <span>Hide zero-qty items</span>
+        </label>
+        <button id="btn-import-invoice" class="ghost-btn">🧾 New invoice</button>
+        <button id="btn-add-product" class="primary-btn">+ Add product</button>
+      </div>
+    </header>
+
+    <section class="ledger-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th class="col-no">No.</th>
+            <th class="col-name">Product</th>
+            <th class="col-num">Remaining qty</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody id="product-body">
+          <!-- rows injected by JS -->
+        </tbody>
+      </table>
+
+      <div class="empty-state" id="empty-state" hidden>
+        <span class="empty-mark">◧</span>
+        <p>No products match this view.</p>
+        <button class="primary-btn" id="btn-add-empty">+ Add your first product</button>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Product modal (add/edit product) -->
+<div class="modal-overlay" id="product-modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
+    <div class="modal-head">
+      <h2 id="product-modal-title">Add product</h2>
+      <button class="icon-btn" id="product-modal-close" aria-label="Close">✕</button>
+    </div>
+    <form id="product-form">
+      <input type="hidden" id="p-id">
+      <div class="field-row">
+        <label class="field-wide">
+          <span>Product / item name</span>
+          <input type="text" id="p-name" required placeholder="e.g. Fire extinguisher — 4kg CO2">
+        </label>
+      </div>
+      <div class="field-row">
+        <label class="field-wide">
+          <span>Brand / group</span>
+          <input type="text" id="p-group" placeholder="e.g. Kanex" list="group-list">
+          <datalist id="group-list"></datalist>
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost-btn" id="p-btn-delete" hidden>Delete product</button>
+        <div class="modal-actions-right">
+          <button type="button" class="ghost-btn" id="product-modal-cancel">Cancel</button>
+          <button type="submit" class="primary-btn">Save product</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Ledger overlay (product detail / transaction history) -->
+<div class="modal-overlay" id="ledger-overlay" hidden>
+  <div class="modal ledger-modal" role="dialog" aria-modal="true" aria-labelledby="ledger-title">
+    <div class="modal-head ledger-head">
+      <div>
+        <h2 id="ledger-title">Product</h2>
+        <span class="ledger-group-tag" id="ledger-group-tag"></span>
+      </div>
+      <button class="icon-btn" id="ledger-close" aria-label="Close">✕</button>
+    </div>
+
+    <div class="ledger-summary">
+      <div class="ledger-remaining">
+        <span class="ledger-remaining-value" id="ledger-remaining">0</span>
+        <span class="ledger-remaining-label">remaining quantity</span>
+      </div>
+      <div class="ledger-actions">
+        <button class="txn-btn txn-btn-purchase" id="btn-add-purchase">+ Purchase entry</button>
+        <button class="txn-btn txn-btn-sale" id="btn-add-sale">+ Sale entry</button>
+        <button class="ghost-btn" id="btn-edit-product">Edit product</button>
+      </div>
+    </div>
+
+    <div class="txn-table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th class="col-name">Party</th>
+            <th class="col-date">Date</th>
+            <th class="col-num">In</th>
+            <th class="col-num">Out</th>
+            <th class="col-price">Rate</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody id="txn-body">
+          <!-- populated by JS -->
+        </tbody>
+      </table>
+      <div class="empty-state" id="txn-empty" hidden>
+        <span class="empty-mark">◧</span>
+        <p>No purchase or sale entries yet.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Transaction modal (add/edit purchase or sale entry) -->
+<div class="modal-overlay" id="txn-modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="txn-modal-title">
+    <div class="modal-head">
+      <h2 id="txn-modal-title">Add entry</h2>
+      <button class="icon-btn" id="txn-modal-close" aria-label="Close">✕</button>
+    </div>
+    <form id="txn-form">
+      <input type="hidden" id="t-id">
+      <input type="hidden" id="t-product-id">
+      <input type="hidden" id="t-type">
+
+      <div class="field-row">
+        <label class="field-wide">
+          <span>Party name</span>
+          <input type="text" id="t-party" placeholder="e.g. name of buyer/supplier">
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>
+          <span>Date</span>
+          <input type="date" id="t-date">
+        </label>
+        <label>
+          <span id="t-qty-label">Quantity</span>
+          <input type="number" id="t-qty" min="0" step="1" required value="0">
+        </label>
+        <label>
+          <span>Rate (₹/unit)</span>
+          <input type="number" id="t-rate" min="0" step="0.01" required value="0">
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="ghost-btn" id="t-btn-delete" hidden>Delete entry</button>
+        <div class="modal-actions-right">
+          <button type="button" class="ghost-btn" id="txn-modal-cancel">Cancel</button>
+          <button type="submit" class="primary-btn" id="txn-submit-btn">Save entry</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- File sync settings modal -->
+<div class="modal-overlay" id="sync-modal-overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sync-modal-title">
+    <div class="modal-head">
+      <h2 id="sync-modal-title">Connect a file</h2>
+      <button class="icon-btn" id="sync-modal-close" aria-label="Close">✕</button>
+    </div>
+
+    <p class="field-hint-muted">
+      Save your inventory straight to a real file on your computer — no account or token needed.
+      For a cloud backup, pick a location inside your <strong>Google Drive for Desktop</strong> folder
+      (or Dropbox / OneDrive folder) and it'll sync automatically. This only works in Chrome or Edge on a computer.
+    </p>
+
+    <div class="modal-actions" style="border-top:none; padding-top:0; margin-top:0;">
+      <div></div>
+      <div class="modal-actions-right">
+        <button type="button" class="ghost-btn" id="btn-open-existing-file">Open existing file</button>
+        <button type="button" class="primary-btn" id="btn-create-new-file">Create new file</button>
+      </div>
+    </div>
+
+    <p class="field-hint-muted" style="margin-top:16px;">
+      Already have an <code>inventory.json</code> from before? Use <strong>Open existing file</strong> to pick it up again.
+      Otherwise, <strong>Create new file</strong> and choose where to save it — inside your synced Drive folder if you have one.
+    </p>
+
+    <div class="modal-actions">
+      <button type="button" class="ghost-btn" id="btn-disconnect-file" hidden>Disconnect</button>
+      <div class="modal-actions-right">
+        <button type="button" class="ghost-btn" id="sync-modal-cancel">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New invoice modal: enter one invoice's worth of line items at once -->
+<div class="modal-overlay" id="invoice-modal-overlay" hidden>
+  <div class="modal invoice-modal" role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title">
+    <div class="modal-head">
+      <h2 id="invoice-modal-title">New invoice</h2>
+      <button class="icon-btn" id="invoice-modal-close" aria-label="Close">✕</button>
+    </div>
+
+    <p class="field-hint-muted">
+      Fill in the invoice once — party, date, and purchase/sale — then list every product on it below.
+      Saving will create or update each product and add one entry per row, all at once.
+    </p>
+
+    <div class="field-row">
+      <label>
+        <span>This invoice is a</span>
+        <select id="inv-type">
+          <option value="purchase">Purchase (stock coming in)</option>
+          <option value="sale">Sale (stock going out)</option>
+        </select>
+      </label>
+      <label>
+        <span>Party name</span>
+        <input type="text" id="inv-party" placeholder="e.g. Kanex Safety">
+      </label>
+      <label>
+        <span>Date</span>
+        <input type="date" id="inv-date">
+      </label>
+    </div>
+
+    <div class="invoice-rows-wrap">
+      <table class="ledger invoice-rows-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th class="col-num">Qty</th>
+            <th class="col-price">Rate</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody id="invoice-rows-body"></tbody>
+      </table>
+    </div>
+
+    <button type="button" class="ghost-btn" id="invoice-add-row" style="margin-top:10px;">+ Add product row</button>
+
+    <div class="modal-actions">
+      <div></div>
+      <div class="modal-actions-right">
+        <button type="button" class="ghost-btn" id="invoice-modal-cancel">Cancel</button>
+        <button type="button" class="primary-btn" id="invoice-save-btn">Save all entries</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="script.js"></script>
+</body>
+</html>
